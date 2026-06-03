@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #222; overflow: hidden; font-family: sans-serif; touch-action: manipulation; }
+        #game-container { position: relative; width: 100%; max-width: 800px; }
+        canvas { background-image: url('background.jpg'); background-size: cover; width: 100%; height: auto; border: 4px solid #fff; display: block; touch-action: none; }
+        
+        #title { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); color: #ff4757; font-size: 60px; font-weight: 900; text-shadow: 3px 3px 0 #fff; z-index: 5; pointer-events: none; }
+        
+        #start-box { position: absolute; top: 65%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 10; width: 100%; }
+        #start-btn { padding: 20px 40px; font-size: 24px; cursor: pointer; border: none; background: #ff4757; color: white; border-radius: 10px; font-weight: bold; }
+        
+        /* 兩行提示文字的樣式 */
+        .tips-box { margin-top: 5px; }
+        .tips-text { color: #fff; font-size: 14px; font-weight: bold; background: rgba(0,0,0,0.5); padding: 3px 8px; border-radius: 5px; text-shadow: 1px 1px 2px #000; display: inline-block; margin-top: 5px; }
+        
+        #ui-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; flex-direction: column; justify-content: center; align-items: center; color: white; text-align: center; z-index: 20; padding: 20px; }
+        .restart-btn { padding: 15px 30px; font-size: 20px; cursor: pointer; border: none; background: #ff4757; color: white; border-radius: 10px; font-weight: bold; margin-top: 20px; }
+        
+        @keyframes gold-shine {
+            0% { transform: scale(1); text-shadow: 0 0 10px #FFD700, 0 0 20px #FFD700; color: #FFFACD; }
+            50% { transform: scale(1.2); text-shadow: 0 0 30px #FFD700, 0 0 50px #DAA520; color: #FFD700; }
+            100% { transform: scale(1); text-shadow: 0 0 10px #FFD700, 0 0 20px #FFD700; color: #FFFACD; }
+        }
+        .big-text { font-size: 55px; font-weight: 900; margin-bottom: 20px; animation: gold-shine 0.6s infinite; letter-spacing: 5px; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="title">統利歐</div>
+        <div id="start-box">
+            <button id="start-btn">點我開始遊戲</button><br>
+            <div class="tips-box">
+                <div class="tips-text">統粉小提醒:建議配戴耳機 可用Enter按按鈕 電腦效能全開(筆電須插電)不然會掉幀</div>
+            </div>
+        </div>
+        <div id="score-board" style="position: absolute; top: 10px; right: 10px; color: white; font-size: 16px; font-weight: bold; text-shadow: 2px 2px 4px #000; pointer-events: none;">吃到火鍋: 0/12</div>
+        <canvas id="game" width="800" height="300"></canvas>
+        
+        <div id="ui-screen">
+            <div id="ui-text" style="font-size: 22px; line-height: 1.6;"></div>
+            <button class="restart-btn" onclick="location.reload()">再來一次</button>
+        </div>
+    </div>
+    <script>
+        const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('start-btn'), startBox = document.getElementById('start-box'), title = document.getElementById('title');
+        const uiScreen = document.getElementById('ui-screen'), uiText = document.getElementById('ui-text');
+        
+        let gameStarted = false, score = 0, gameTime = 0, invincible = 0, catPos = 800;
+        let god = { x: 50, y: 200, w: 60, h: 60, dy: 0, grounded: true }, obstacles = [], items = [];
+        const currentSpeed = 8, GAME_DURATION = 7800, interval = Math.floor((GAME_DURATION - 1000) / 12);
+        let nextHotpotTime = interval, usedSounds = [];
+
+        const pImg = new Image(); pImg.src = 'player.png';
+        const obsList = [new Image(), new Image(), new Image()];
+        obsList[0].src = 'car.png'; obsList[1].src = 'tire.png'; obsList[2].src = 'snake.png';
+        const item = new Image(); item.src = 'hotpot.png';
+        const goal = new Image(); goal.src = 'cat.png';
+        const sDie = new Audio('crash.mp3'), sWin = new Audio('victory.mp3'); sWin.loop = true;
+        const eatSounds = Array.from({length: 12}, (_, i) => new Audio('eat' + (i + 1) + '.mp3'));
+
+        function startGame() { if (!gameStarted) { startBox.style.display = 'none'; title.style.display = 'none'; gameStarted = true; update(); } }
+        function jump() { if (gameStarted && god.grounded) { god.dy = -16; god.grounded = false; } }
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {passive: false});
+        canvas.addEventListener('mousedown', jump);
+        window.addEventListener('keydown', (e) => { 
+            if(e.code === 'Space' || e.code === 'ArrowUp') jump(); 
+            if(e.code === 'Enter') { startGame(); if(uiScreen.style.display === 'flex') location.reload(); }
+        });
+
+        startBtn.addEventListener('click', startGame);
+
+        function update() {
+            if (!gameStarted) return;
+            gameTime++; ctx.clearRect(0, 0, 800, 300);
+            if (!god.grounded) { god.dy += 0.65; god.y += god.dy; if (god.y >= 200) { god.y = 200; god.grounded = true; god.dy = 0; } }
+            ctx.drawImage(pImg, god.x, god.y, god.w, god.h);
+
+            if (gameTime < GAME_DURATION && gameTime % 107 === 0 && Math.abs(gameTime - nextHotpotTime) > 200) 
+                obstacles.push({ x: 800, y: 230, w: 50, h: 50, img: obsList[Math.floor(Math.random()*3)] });
+
+            if (gameTime >= nextHotpotTime && usedSounds.length < 12) {
+                let s = Math.floor(Math.random()*12); if (!usedSounds.includes(s)) { usedSounds.push(s); items.push({ x: 800, y: 150, w: 40, h: 40, img: item, sIdx: s }); nextHotpotTime += interval; }
+            }
+
+            obstacles.forEach(o => { o.x -= currentSpeed; ctx.drawImage(o.img, o.x, o.y, o.w, o.h); 
+                if (invincible <= 0 && o.x < god.x + 40 && o.x + 30 > god.x && o.y < god.y + 40) {
+                    gameStarted = false; sDie.play(); uiText.innerHTML = "你這不是作弊嗎！"; uiScreen.style.display = 'flex';
+                }
+            });
+
+            items.forEach((i, idx) => { i.x -= currentSpeed; ctx.drawImage(i.img, i.x, i.y, i.w, i.h);
+                if (i.x < god.x + 40 && i.x + 40 > god.x && Math.abs(i.y - god.y) < 50) { eatSounds[i.sIdx].play(); invincible = 48; score++; document.getElementById('score-board').innerText = "吃到火鍋: " + score + "/12"; items.splice(idx, 1); }
+            });
+
+            if (gameTime > GAME_DURATION) { catPos -= currentSpeed; ctx.drawImage(goal, catPos, 200, 60, 60);
+                if (catPos < god.x + 40) { gameStarted = false; sWin.play();
+                    let html = score + "/12<br>";
+                    if (score <= 5) html += "再加把勁R！<br>假統粉！吃到完整的12個火鍋截圖上社群炫耀！";
+                    else if (score < 12) html += "開始進入我的Tempo了！<br>假統粉！吃到完整的12個火鍋截圖上社群炫耀！";
+                    else html += "<div class='big-text'>太神啦！</div>你吃到12個火鍋了，截圖上社群炫耀！";
+                    uiText.innerHTML = html; uiScreen.style.display = 'flex';
+                }
+            }
+            if (invincible > 0) invincible--;
+            requestAnimationFrame(update);
+        }
+    </script>
+</body>
+</html>
